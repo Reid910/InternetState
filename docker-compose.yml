@@ -25,7 +25,7 @@ services:
       DATABASE_URL: postgresql://appuser:apppassword@postgres:5432/summarizer
       OLLAMA_URL: http://host.docker.internal:11434
       AWS_REGION: ${AWS_REGION:-us-east-2}
-      SQS_URL: https://sqs.us-east-2.amazonaws.com/350480401793/MyQueue
+      SQS_URL: ${SQS_URL:-}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
   api:
