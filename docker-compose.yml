@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: ankane/pgvector
+    container_name: internet_state_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: apppassword
+      POSTGRES_DB: summarizer
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+  worker:
+    build: ./worker
+    container_name: summarizer_worker
+    restart: unless-stopped
+    profiles: [worker]
+    depends_on:
+      - postgres
+    command: ["python", "worker.py"]  # uncomment to use SQS polling instead of sleep loop
+    environment:
+      RUN_INTERVAL_MINUTES: "5"
+      DATABASE_URL: postgresql://appuser:apppassword@postgres:5432/summarizer
+      OLLAMA_URL: http://host.docker.internal:11434
+      AWS_REGION: ${AWS_REGION:-us-east-2}
+      SQS_URL: https://sqs.us-east-2.amazonaws.com/350480401793/MyQueue
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  api:
+    build: ./api
+    container_name: internet_state_api
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://appuser:apppassword@postgres:5432/summarizer
+      OLLAMA_URL: http://host.docker.internal:11434
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        API_URL: http://api:8000
+    container_name: internet_state_frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+    environment:
+      API_URL: http://api:8000
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+
+volumes:
+  postgres_data:
