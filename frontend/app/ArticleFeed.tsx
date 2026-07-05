@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 
 interface Article {
   id: number
@@ -59,9 +59,30 @@ function ArticleCard({ article }: { article: Article }) {
   )
 }
 
-export default function ArticleFeed({ page }: { page: number }) {
+function Pager({ page, totalPages, goToPage, bottom = false }: {
+  page: number; totalPages: number; goToPage: (p: number) => void; bottom?: boolean
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: bottom ? '1rem 0 2rem' : '0 0 1rem' }}>
+      <button onClick={() => goToPage(page - 1)} disabled={page === 1}
+        style={{ padding: '0.4rem 0.9rem', borderRadius: '4px', border: '1px solid #ddd', background: page === 1 ? '#f5f5f5' : '#fff', cursor: page === 1 ? 'default' : 'pointer', color: '#444' }}>
+        ← prev
+      </button>
+      <span style={{ fontSize: '0.85rem', color: '#666' }}>page {page} of {totalPages}</span>
+      <button onClick={() => goToPage(page + 1)} disabled={page === totalPages}
+        style={{ padding: '0.4rem 0.9rem', borderRadius: '4px', border: '1px solid #ddd', background: page === totalPages ? '#f5f5f5' : '#fff', cursor: page === totalPages ? 'default' : 'pointer', color: '#444' }}>
+        next →
+      </button>
+    </div>
+  )
+}
+
+export default function ArticleFeed() {
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
+
+  const page = parseInt(pathname.slice(1)) || 1
   const source = searchParams.get('source') || ''
 
   const [data, setData] = useState<ArticlesResponse | null>(null)
@@ -74,6 +95,7 @@ export default function ArticleFeed({ page }: { page: number }) {
 
   useEffect(() => {
     setLoading(true)
+    window.scrollTo(0, 0)
     const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) })
     if (source) params.set('source', source)
     fetch(`${API}/articles?${params}`)
@@ -124,23 +146,13 @@ export default function ArticleFeed({ page }: { page: number }) {
         <p style={{ color: '#aaa', fontSize: '0.9rem' }}>No articles yet.</p>
       )}
 
+      {totalPages > 1 && <Pager page={page} totalPages={totalPages} goToPage={goToPage} />}
+
       {data?.articles.map(article => (
         <ArticleCard key={article.id} article={article} />
       ))}
 
-      {totalPages > 1 && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '1rem 0 2rem' }}>
-          <button onClick={() => goToPage(page - 1)} disabled={page === 1}
-            style={{ padding: '0.4rem 0.9rem', borderRadius: '4px', border: '1px solid #ddd', background: page === 1 ? '#f5f5f5' : '#fff', cursor: page === 1 ? 'default' : 'pointer', color: '#444' }}>
-            ← prev
-          </button>
-          <span style={{ fontSize: '0.85rem', color: '#666' }}>page {page} of {totalPages}</span>
-          <button onClick={() => goToPage(page + 1)} disabled={page === totalPages}
-            style={{ padding: '0.4rem 0.9rem', borderRadius: '4px', border: '1px solid #ddd', background: page === totalPages ? '#f5f5f5' : '#fff', cursor: page === totalPages ? 'default' : 'pointer', color: '#444' }}>
-            next →
-          </button>
-        </div>
-      )}
+      {totalPages > 1 && <Pager page={page} totalPages={totalPages} goToPage={goToPage} bottom />}
     </>
   )
 }

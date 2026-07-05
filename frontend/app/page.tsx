@@ -20,7 +20,7 @@ async function getStats(): Promise<Stats> {
   }
 }
 
-export default async function Home({ pageNumber = 1 }: { pageNumber?: number }) {
+export default async function Home() {
   const stats = await getStats()
 
   return (
@@ -36,7 +36,7 @@ export default async function Home({ pageNumber = 1 }: { pageNumber?: number }) 
       </header>
 
       <Suspense fallback={<p style={{ color: '#aaa', fontSize: '0.9rem' }}>Loading...</p>}>
-        <ArticleFeed page={pageNumber} />
+        <ArticleFeed />
       </Suspense>
     </main>
   )
