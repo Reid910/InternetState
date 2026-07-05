@@ -2,7 +2,7 @@
 
 A serverless news intelligence platform that automatically ingests articles from RSS feeds, summarizes them with AI, and displays them in a live-updating web feed.
 
-**Live site:** https://internet-state-doi9t3pep-sams-projects-a95f854d.vercel.app
+**Live site:** internet-state-roan.vercel.app
 
 ---
 
