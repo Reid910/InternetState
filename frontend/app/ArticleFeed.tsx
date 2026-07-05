@@ -126,8 +126,10 @@ export default function ArticleFeed() {
             </option>
           ))}
         </select>
-        <Pager page={page} totalPages={totalPages} goToPage={goToPage} />
-        {data && <span style={{ fontSize: '0.82rem', color: '#aaa', marginLeft: 'auto' }}>{data.total.toLocaleString()} articles</span>}
+        {data && <span style={{ fontSize: '0.82rem', color: '#aaa' }}>{data.total.toLocaleString()} articles</span>}
+        <div style={{ marginLeft: 'auto' }}>
+          <Pager page={page} totalPages={totalPages} goToPage={goToPage} />
+        </div>
       </div>
 
       {loading && <p style={{ color: '#aaa', fontSize: '0.9rem' }}>Loading...</p>}
