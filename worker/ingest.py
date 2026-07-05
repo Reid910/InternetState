@@ -13,12 +13,16 @@ import certifi
 import feedparser
 from bs4 import BeautifulSoup
 from datetime import datetime
+from typing import Optional
 from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+from openai import OpenAI
 
 from config import (
     HEADERS, STRIP_PARAMS, MIN_WORD_COUNT, MAX_FEED_FAILURES,
-    OLLAMA_URL, MEDIA_TIERS,
+    OPENAI_API_KEY, MEDIA_TIERS,
 )
+
+_openai = OpenAI(api_key=OPENAI_API_KEY)
 
 _feed_failures: dict[str, int] = {}
 
@@ -221,25 +225,20 @@ def summarize(text: str, source_type="news") -> str:
             "no preamble:\n\n"
             f"{text[:4000]}"
         )
-    resp = requests.post(
-        f"{OLLAMA_URL}/api/generate",
-        json={"model": "llama3", "prompt": prompt, "stream": False},
-        timeout=120,
+    resp = _openai.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=200,
     )
-    resp.raise_for_status()
-    return resp.json()["response"].strip()
+    return resp.choices[0].message.content.strip()
 
 
 def get_embedding(text: str) -> list:
-    resp = requests.post(
-        f"{OLLAMA_URL}/api/embed",
-        json={"model": "all-minilm", "input": text[:500]},
-        timeout=60,
+    resp = _openai.embeddings.create(
+        model="text-embedding-3-small",
+        input=text[:2000],
     )
-    if not resp.ok:
-        print(f"  [embed-error] {resp.text}")
-    resp.raise_for_status()
-    return resp.json()["embeddings"][0]
+    return resp.data[0].embedding
 
 
 # ---------------------------------------------------------------------------
@@ -294,8 +293,8 @@ def _already_seen(page_id: int, content_hash: str, entry_guid, cur) -> bool:
 
 def process_url(url: str, cur, conn, title_override=None, date_override=None,
                 source_type="news", feed_url=None, entry_guid=None,
-                rss_summary: str | None = None,
-                rss_source_url: str | None = None) -> str:
+                rss_summary: Optional[str] = None,
+                rss_source_url: Optional[str] = None) -> str:
     """
     Full ingestion pipeline for one URL.
 

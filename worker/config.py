@@ -3,11 +3,11 @@ import os
 RSS_SOURCES = [
     # Legacy / wire
     "https://news.google.com/rss",
-    "https://feeds.reuters.com/reuters/topNews",
+    "https://apnews.com/rss",
     "https://www.theguardian.com/world/rss",
     "https://feeds.npr.org/1001/rss.xml",
     "https://feeds.bbci.co.uk/news/world/rss.xml",
-    "https://www.politico.com/rss/politicopicks.xml",
+    "https://rss.politico.com/politics-news.xml",
     # Independent / investigative
     "https://www.aljazeera.com/xml/rss/all.xml",
     "https://theintercept.com/feed/?rss",
@@ -36,7 +36,7 @@ ANGLE_DISTANCE_THRESHOLD = 0.15
 COVERAGE_GAP_THRESHOLD = 0.40
 
 DB_URL = os.getenv("DATABASE_URL", "postgresql://appuser:apppassword@postgres:5432/summarizer")
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 SQS_URL = os.getenv("SQS_URL", "")
 

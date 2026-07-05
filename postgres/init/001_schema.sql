@@ -21,6 +21,6 @@ CREATE TABLE IF NOT EXISTS page_versions (
     status_code INTEGER,
     etag TEXT,
     last_modified TEXT,
-    embedding vector(384),
+    embedding vector(1536),
     article_date TIMESTAMP
 );
