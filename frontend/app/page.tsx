@@ -10,25 +10,31 @@ interface Stats {
 }
 
 async function getStats(): Promise<Stats> {
-  const res = await fetch(`${API_URL}/stats`, { cache: 'no-store' })
-  if (!res.ok) return { total_articles: 0, articles_today: 0 }
-  return res.json()
+  try {
+    const res = await fetch(`${API_URL}/stats`, { cache: 'no-store' })
+    if (!res.ok) return { total_articles: 0, articles_today: 0 }
+    return res.json()
+  } catch {
+    return { total_articles: 0, articles_today: 0 }
+  }
 }
 
-export default async function Home() {
+export default async function Home({ pageNumber = 1 }: { pageNumber?: number }) {
   const stats = await getStats()
 
   return (
     <main style={{ maxWidth: '780px', margin: '0 auto', padding: '2rem 1rem' }}>
       <header style={{ marginBottom: '1.5rem', borderBottom: '2px solid #1a1a1a', paddingBottom: '1rem' }}>
-        <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: '700' }}>Internet State</h1>
+        <a href="/" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: '700' }}>Internet State</h1>
+        </a>
         <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.4rem' }}>
           <Stat label="articles today" value={stats.articles_today} />
           <Stat label="total articles" value={stats.total_articles} />
         </div>
       </header>
 
-      <ArticleFeed />
+      <ArticleFeed page={pageNumber} />
     </main>
   )
 }
