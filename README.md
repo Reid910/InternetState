@@ -85,7 +85,6 @@ page_versions   — one row per fetch, stores extracted text, summary, and embed
 stories         — AI-grouped clusters of articles (future feature)
 story_articles  — links articles to stories
 story_angles    — named sub-facets within a story (future feature)
-coverage_reports — per-run media coverage analysis (future feature)
 ```
 
 ---
@@ -96,13 +95,13 @@ coverage_reports — per-run media coverage analysis (future feature)
 |---|---|
 | Google News | Aggregator |
 | AP News | Wire |
-| The Guardian | Legacy |
-| NPR | Legacy |
-| BBC World | Legacy |
-| Politico | Legacy |
-| Al Jazeera | Independent |
-| The Intercept | Independent |
-| ProPublica | Independent/Investigative |
+| The Guardian | News |
+| NPR | News |
+| BBC World | News |
+| Politico | News |
+| Al Jazeera | News |
+| The Intercept | News |
+| ProPublica | Investigative |
 
 ---
 
