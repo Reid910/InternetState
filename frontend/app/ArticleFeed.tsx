@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 interface Article {
   id: number
@@ -58,9 +59,40 @@ function ArticleCard({ article }: { article: Article }) {
   )
 }
 
+function Pagination({ page, totalPages }: { page: number; totalPages: number }) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
+  function go(newPage: number) {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('page', String(newPage))
+    router.push(`?${params.toString()}`)
+  }
+
+  if (totalPages <= 1) return null
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '1rem 0 2rem' }}>
+      <button onClick={() => go(page - 1)} disabled={page === 1}
+        style={{ padding: '0.4rem 0.9rem', borderRadius: '4px', border: '1px solid #ddd', background: page === 1 ? '#f5f5f5' : '#fff', cursor: page === 1 ? 'default' : 'pointer', color: '#444' }}>
+        ← prev
+      </button>
+      <span style={{ fontSize: '0.85rem', color: '#666' }}>page {page} of {totalPages}</span>
+      <button onClick={() => go(page + 1)} disabled={page === totalPages}
+        style={{ padding: '0.4rem 0.9rem', borderRadius: '4px', border: '1px solid #ddd', background: page === totalPages ? '#f5f5f5' : '#fff', cursor: page === totalPages ? 'default' : 'pointer', color: '#444' }}>
+        next →
+      </button>
+    </div>
+  )
+}
+
 export default function ArticleFeed() {
-  const [page, setPage] = useState(1)
-  const [source, setSource] = useState<string>('')
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
+  const page = Number(searchParams.get('page') || '1')
+  const source = searchParams.get('source') || ''
+
   const [data, setData] = useState<ArticlesResponse | null>(null)
   const [sources, setSources] = useState<Source[]>([])
   const [loading, setLoading] = useState(true)
@@ -80,8 +112,11 @@ export default function ArticleFeed() {
   }, [page, source])
 
   function handleSourceChange(val: string) {
-    setSource(val)
-    setPage(1)
+    const params = new URLSearchParams(searchParams.toString())
+    if (val) params.set('source', val)
+    else params.delete('source')
+    params.delete('page')
+    router.push(`?${params.toString()}`)
   }
 
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0
@@ -121,19 +156,7 @@ export default function ArticleFeed() {
         <ArticleCard key={article.id} article={article} />
       ))}
 
-      {totalPages > 1 && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '1rem 0 2rem' }}>
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-            style={{ padding: '0.4rem 0.9rem', borderRadius: '4px', border: '1px solid #ddd', background: page === 1 ? '#f5f5f5' : '#fff', cursor: page === 1 ? 'default' : 'pointer', color: '#444' }}>
-            ← prev
-          </button>
-          <span style={{ fontSize: '0.85rem', color: '#666' }}>page {page} of {totalPages}</span>
-          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-            style={{ padding: '0.4rem 0.9rem', borderRadius: '4px', border: '1px solid #ddd', background: page === totalPages ? '#f5f5f5' : '#fff', cursor: page === totalPages ? 'default' : 'pointer', color: '#444' }}>
-            next →
-          </button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} />
     </>
   )
 }

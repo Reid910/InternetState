@@ -74,10 +74,11 @@ def list_sources():
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-        SELECT source_domain, COUNT(*) AS article_count
-        FROM pages
-        WHERE source_domain IS NOT NULL
-        GROUP BY source_domain
+        SELECT p.source_domain, COUNT(*) AS article_count
+        FROM page_versions pv
+        JOIN pages p ON p.id = pv.page_id
+        WHERE p.source_domain IS NOT NULL AND pv.ingest_status = 'full'
+        GROUP BY p.source_domain
         ORDER BY article_count DESC
     """)
     rows = cur.fetchall()
