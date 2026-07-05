@@ -43,26 +43,32 @@ def list_articles(page: int = 1, limit: int = 30, source: str = None):
     conn = get_conn()
     cur = conn.cursor()
 
-    filters = "WHERE pv.ingest_status = 'full'" + (" AND p.source_domain = %s" if source else "")
-    params = [*(([source]) if source else []), limit, offset]
+    source_filter = "AND p.source_domain = %s" if source else ""
+    count_params = ([source] if source else [])
+    query_params = ([source] if source else []) + [limit, offset]
 
     cur.execute(f"""
         SELECT COUNT(DISTINCT p.id)
         FROM page_versions pv
         JOIN pages p ON p.id = pv.page_id
-        {filters}
-    """, params[:-2] if source else [])
+        WHERE pv.ingest_status = 'full' {source_filter}
+    """, count_params)
     total = cur.fetchone()["count"]
 
     cur.execute(f"""
         SELECT p.id, p.url, p.title, p.source_domain,
-               pv.summary, pv.article_date, pv.fetched_at, pv.ingest_status
-        FROM page_versions pv
+               pv.summary, pv.article_date, pv.fetched_at
+        FROM (
+            SELECT DISTINCT ON (page_id) *
+            FROM page_versions
+            WHERE ingest_status = 'full'
+            ORDER BY page_id, COALESCE(article_date, fetched_at) DESC
+        ) pv
         JOIN pages p ON p.id = pv.page_id
-        {filters}
+        WHERE true {source_filter}
         ORDER BY COALESCE(pv.article_date, pv.fetched_at) DESC
         LIMIT %s OFFSET %s
-    """, params)
+    """, query_params)
     rows = cur.fetchall()
     cur.close()
     conn.close()

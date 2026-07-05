@@ -1,6 +1,5 @@
 export const dynamic = 'force-dynamic'
 
-import { Suspense } from 'react'
 import ArticleFeed from './ArticleFeed'
 
 const API_URL = process.env.API_URL || 'http://localhost:8000'
@@ -35,9 +34,7 @@ export default async function Home() {
         </div>
       </header>
 
-      <Suspense fallback={<p style={{ color: '#aaa', fontSize: '0.9rem' }}>Loading...</p>}>
-        <ArticleFeed />
-      </Suspense>
+      <ArticleFeed />
     </main>
   )
 }
