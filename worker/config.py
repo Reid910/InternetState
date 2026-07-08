@@ -1,14 +1,12 @@
 import os
 
 RSS_SOURCES = [
-    # Legacy / wire
     "https://news.google.com/rss",
     "https://apnews.com/rss",
     "https://www.theguardian.com/world/rss",
     "https://feeds.npr.org/1001/rss.xml",
     "https://feeds.bbci.co.uk/news/world/rss.xml",
     "https://rss.politico.com/politics-news.xml",
-    # Independent / investigative
     "https://www.aljazeera.com/xml/rss/all.xml",
     "https://theintercept.com/feed/?rss",
     "https://www.propublica.org/feeds/propublica/main",
@@ -31,60 +29,8 @@ STRIP_PARAMS = {
 
 MIN_WORD_COUNT = 120
 MAX_FEED_FAILURES = 3
-MIN_ARTICLES_FOR_ANGLES = 3
-ANGLE_DISTANCE_THRESHOLD = 0.15
-COVERAGE_GAP_THRESHOLD = 0.40
 
-DB_URL = os.getenv("DATABASE_URL", "postgresql://appuser:apppassword@postgres:5432/summarizer")
+DB_URL = os.getenv("DATABASE_URL")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 SQS_URL = os.getenv("SQS_URL", "")
-
-# Curated tier classification. Domains not listed are 'unknown'.
-# Edit this dict as you add/remove sources.
-MEDIA_TIERS: dict[str, str] = {
-    # Legacy / mainstream / wire
-    "reuters.com":        "legacy",
-    "apnews.com":         "legacy",
-    "bbc.com":            "legacy",
-    "bbc.co.uk":          "legacy",
-    "theguardian.com":    "legacy",
-    "npr.org":            "legacy",
-    "nytimes.com":        "legacy",
-    "washingtonpost.com": "legacy",
-    "wsj.com":            "legacy",
-    "politico.com":       "legacy",
-    "cnn.com":            "legacy",
-    "nbcnews.com":        "legacy",
-    "abcnews.go.com":     "legacy",
-    "cbsnews.com":        "legacy",
-    "foxnews.com":        "legacy",
-    "bloomberg.com":      "legacy",
-    "ft.com":             "legacy",
-    "time.com":           "legacy",
-    "newsweek.com":       "legacy",
-    "usatoday.com":       "legacy",
-    "latimes.com":        "legacy",
-    "thehill.com":        "legacy",
-    "axios.com":          "legacy",
-    # Independent / investigative / alternative
-    "aljazeera.com":      "independent",
-    "theintercept.com":   "independent",
-    "propublica.org":     "independent",
-    "democracynow.org":   "independent",
-    "motherjones.com":    "independent",
-    "thenation.com":      "independent",
-    "jacobin.com":        "independent",
-    "commondreams.org":   "independent",
-    "truthout.org":       "independent",
-    "mintpressnews.com":  "independent",
-    "consortiumnews.com": "independent",
-    "scheerpost.com":     "independent",
-    "stevenschmidt.substack.com": "independent",
-    "racket.news":        "independent",
-    "substack.com":       "independent",
-    # Aggregators — excluded from tier comparison
-    "news.google.com":    "aggregator",
-    "reddit.com":         "aggregator",
-    "flipboard.com":      "aggregator",
-}
