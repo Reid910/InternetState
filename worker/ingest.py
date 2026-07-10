@@ -19,7 +19,7 @@ from openai import OpenAI
 
 from config import (
     HEADERS, STRIP_PARAMS, MIN_WORD_COUNT, MAX_FEED_FAILURES,
-    OPENAI_API_KEY, MEDIA_TIERS,
+    OPENAI_API_KEY,
 )
 
 _openai = OpenAI(api_key=OPENAI_API_KEY)
@@ -245,24 +245,13 @@ def get_embedding(text: str) -> list:
 # DB helpers
 # ---------------------------------------------------------------------------
 
-def get_media_tier(domain: str) -> str:
-    domain = domain.lower().replace("www.", "")
-    if domain in MEDIA_TIERS:
-        return MEDIA_TIERS[domain]
-    for key, tier in MEDIA_TIERS.items():
-        if domain.endswith(key):
-            return tier
-    return "unknown"
-
-
 def _upsert_page(url: str, source_domain: str, cur) -> int:
-    tier = get_media_tier(source_domain)
     cur.execute("""
-        INSERT INTO pages (url, source_domain, media_tier)
-        VALUES (%s, %s, %s)
+        INSERT INTO pages (url, source_domain)
+        VALUES (%s, %s)
         ON CONFLICT (url) DO NOTHING
         RETURNING id
-    """, (url, source_domain, tier))
+    """, (url, source_domain))
     row = cur.fetchone()
     if row:
         return row[0]
@@ -343,8 +332,8 @@ def process_url(url: str, cur, conn, title_override=None, date_override=None,
             INSERT INTO page_versions
                 (page_id, content_hash, clean_text, summary, embedding, article_date,
                  feed_url, entry_guid, word_count, ingest_status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'fetch_failed')
-        """, (page_id, content_hash, rss_text or None,
+            VALUES (%s, %s, NULL, %s, %s, %s, %s, %s, %s, 'fetch_failed')
+        """, (page_id, content_hash,
               rss_text[:500] if rss_text else None, embedding,
               date_override, feed_url, entry_guid,
               len(rss_text.split()) if rss_text else 0))
@@ -383,8 +372,8 @@ def process_url(url: str, cur, conn, title_override=None, date_override=None,
             INSERT INTO page_versions
                 (page_id, content_hash, clean_text, summary, embedding, article_date,
                  feed_url, entry_guid, word_count, ingest_status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'extract_short')
-        """, (page_id, content_hash, text or None,
+            VALUES (%s, %s, NULL, %s, %s, %s, %s, %s, %s, 'extract_short')
+        """, (page_id, content_hash,
               (rss_text[:500] if rss_text else None), embedding,
               date_override or extract_article_date(html),
               feed_url, entry_guid, word_count))
@@ -412,8 +401,8 @@ def process_url(url: str, cur, conn, title_override=None, date_override=None,
         INSERT INTO page_versions
             (page_id, content_hash, clean_text, summary, summary_hash,
              embedding, article_date, feed_url, entry_guid, word_count, ingest_status)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'full')
-    """, (page_id, content_hash, text, summary, summary_hash,
+        VALUES (%s, %s, NULL, %s, %s, %s, %s, %s, %s, %s, 'full')
+    """, (page_id, content_hash, summary, summary_hash,
           embedding, article_date, feed_url, entry_guid, word_count))
 
     cur.execute("""
