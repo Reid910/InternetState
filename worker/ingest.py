@@ -330,9 +330,9 @@ def process_url(url: str, cur, conn, title_override=None, date_override=None,
 
         cur.execute("""
             INSERT INTO page_versions
-                (page_id, content_hash, clean_text, summary, embedding, article_date,
+                (page_id, content_hash, summary, embedding, article_date,
                  feed_url, entry_guid, word_count, ingest_status)
-            VALUES (%s, %s, NULL, %s, %s, %s, %s, %s, %s, 'fetch_failed')
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'fetch_failed')
         """, (page_id, content_hash,
               rss_text[:500] if rss_text else None, embedding,
               date_override, feed_url, entry_guid,
@@ -370,9 +370,9 @@ def process_url(url: str, cur, conn, title_override=None, date_override=None,
 
         cur.execute("""
             INSERT INTO page_versions
-                (page_id, content_hash, clean_text, summary, embedding, article_date,
+                (page_id, content_hash, summary, embedding, article_date,
                  feed_url, entry_guid, word_count, ingest_status)
-            VALUES (%s, %s, NULL, %s, %s, %s, %s, %s, %s, 'extract_short')
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'extract_short')
         """, (page_id, content_hash,
               (rss_text[:500] if rss_text else None), embedding,
               date_override or extract_article_date(html),
@@ -399,9 +399,9 @@ def process_url(url: str, cur, conn, title_override=None, date_override=None,
 
     cur.execute("""
         INSERT INTO page_versions
-            (page_id, content_hash, clean_text, summary, summary_hash,
+            (page_id, content_hash, summary, summary_hash,
              embedding, article_date, feed_url, entry_guid, word_count, ingest_status)
-        VALUES (%s, %s, NULL, %s, %s, %s, %s, %s, %s, %s, 'full')
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'full')
     """, (page_id, content_hash, summary, summary_hash,
           embedding, article_date, feed_url, entry_guid, word_count))
 
