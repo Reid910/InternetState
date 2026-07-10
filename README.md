@@ -9,7 +9,7 @@ A serverless news intelligence platform that automatically ingests articles from
 ## What It Does
 
 - Fetches articles from 9 RSS news sources every 15 minutes
-- Extracts full article text, deduplicates by URL and GUID
+- Deduplicates articles by URL and GUID
 - Summarizes each new article using the OpenAI API
 - Generates vector embeddings for semantic similarity (groundwork for story clustering)
 - Serves articles through a REST API with source filtering and pagination
@@ -81,7 +81,7 @@ Vercel (Next.js)           — public frontend
 
 ```
 pages           — one row per unique article URL
-page_versions   — one row per fetch, stores extracted text, summary, and embedding
+page_versions   — one row per fetch, stores summary and embedding
 stories         — AI-grouped clusters of articles (future feature)
 story_articles  — links articles to stories
 story_angles    — named sub-facets within a story (future feature)
@@ -151,23 +151,3 @@ docker buildx build --platform linux/amd64 --provenance=false \
 # Frontend deploys automatically via Vercel on push to main
 ```
 
----
-
-## Cost
-
-| Service | Monthly Cost |
-|---|---|
-| AWS Lambda, EventBridge, API Gateway, ECR | ~$0 (free tier) |
-| Neon PostgreSQL | $0 (free tier) |
-| OpenAI API (summaries + embeddings) | ~$0.25 |
-| Vercel | $0 (free tier) |
-| **Total** | **~$0.25/month** |
-
----
-
-## Roadmap
-
-- **Story clustering** — group articles about the same event using embedding cosine similarity
-- **Multi-source comparison** — show how different outlets covered the same story
-- **Search** — full-text and semantic search across the article archive
-- **Summary styles** — bullet points, ELI5, detailed breakdown

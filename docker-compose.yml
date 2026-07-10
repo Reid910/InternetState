@@ -4,9 +4,9 @@ services:
     container_name: internet_state_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: appuser
-      POSTGRES_PASSWORD: apppassword
-      POSTGRES_DB: summarizer
+      POSTGRES_USER: ${POSTGRES_USER:-appuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-summarizer}
     ports:
       - "5432:5432"
     volumes:
@@ -19,15 +19,10 @@ services:
     profiles: [worker]
     depends_on:
       - postgres
-    command: ["python", "worker.py"]  # uncomment to use SQS polling instead of sleep loop
     environment:
       RUN_INTERVAL_MINUTES: "5"
-      DATABASE_URL: postgresql://appuser:apppassword@postgres:5432/summarizer
+      DATABASE_URL: postgresql://${POSTGRES_USER:-appuser}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-summarizer}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      AWS_REGION: ${AWS_REGION:-us-east-2}
-      SQS_URL: ${SQS_URL:-}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
   api:
     build: ./api
     container_name: internet_state_api
@@ -37,7 +32,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://appuser:apppassword@postgres:5432/summarizer
+      DATABASE_URL: postgresql://${POSTGRES_USER:-appuser}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-summarizer}
   frontend:
     build:
       context: ./frontend

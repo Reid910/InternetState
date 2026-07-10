@@ -14,7 +14,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_URL = os.getenv("DATABASE_URL", "postgresql://appuser:apppassword@postgres:5432/summarizer")
+DB_URL = os.getenv("DATABASE_URL")
 
 
 def get_conn():

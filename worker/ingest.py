@@ -1,10 +1,3 @@
-"""
-ingest.py — RSS fetching, article fetching, extraction, summarization, embedding.
-
-Responsible for getting articles into the database. Clustering and AI grouping
-logic lives in cluster.py.
-"""
-
 import json
 import time
 import hashlib

@@ -33,4 +33,3 @@ MAX_FEED_FAILURES = 3
 DB_URL = os.getenv("DATABASE_URL")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-SQS_URL = os.getenv("SQS_URL", "")
