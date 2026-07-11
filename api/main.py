@@ -1,9 +1,10 @@
 import os
 import psycopg2
 import psycopg2.extras
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
+from openai import OpenAI
 
 app = FastAPI()
 
@@ -15,6 +16,7 @@ app.add_middleware(
 )
 
 DB_URL = os.getenv("DATABASE_URL")
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 def get_conn():
@@ -27,9 +29,9 @@ def stats():
     cur = conn.cursor()
     cur.execute("""
         SELECT
-            (SELECT COUNT(*) FROM pages) AS total_articles,
+            (SELECT COUNT(*) FROM page_versions WHERE ingest_status = 'full') AS total_articles,
             (SELECT COUNT(*) FROM page_versions
-             WHERE fetched_at >= NOW() - INTERVAL '24 hours') AS articles_today
+             WHERE ingest_status = 'full' AND fetched_at >= NOW() - INTERVAL '24 hours') AS articles_today
     """)
     row = cur.fetchone()
     cur.close()
@@ -119,6 +121,108 @@ def list_stories(page: int = 1, limit: int = 20):
     cur.close()
     conn.close()
     return {"total": total, "page": page, "limit": limit, "stories": rows}
+
+
+@app.get("/search")
+def search(q: str, mode: str = "text", type: str = "articles", limit: int = 20):
+    if not q or not q.strip():
+        raise HTTPException(status_code=400, detail="q is required")
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    vec_str = None
+    if mode == "semantic":
+        resp = openai_client.embeddings.create(
+            model="text-embedding-3-small",
+            input=q.strip(),
+        )
+        vec = resp.data[0].embedding
+        vec_str = "[" + ",".join(str(x) for x in vec) + "]"
+
+    if type == "stories":
+        if mode == "semantic":
+            cur.execute("""
+                SELECT s.id, s.headline, s.summary, s.article_count, s.updated_at,
+                       1 - (s.embedding <=> %s::vector) AS score,
+                       json_agg(json_build_object(
+                           'id', p.id, 'url', p.url, 'title', p.title,
+                           'source_domain', p.source_domain
+                       ) ORDER BY p.id) AS articles
+                FROM stories s
+                JOIN story_articles sa ON sa.story_id = s.id
+                JOIN pages p ON p.id = sa.page_id
+                WHERE s.embedding IS NOT NULL
+                GROUP BY s.id
+                ORDER BY s.embedding <=> %s::vector
+                LIMIT %s
+            """, (vec_str, vec_str, limit))
+        else:
+            cur.execute("""
+                SELECT s.id, s.headline, s.summary, s.article_count, s.updated_at,
+                       ts_rank(
+                           to_tsvector('english', coalesce(s.headline,'') || ' ' || coalesce(s.summary,'')),
+                           websearch_to_tsquery('english', %s)
+                       ) AS score,
+                       json_agg(json_build_object(
+                           'id', p.id, 'url', p.url, 'title', p.title,
+                           'source_domain', p.source_domain
+                       ) ORDER BY p.id) AS articles
+                FROM stories s
+                JOIN story_articles sa ON sa.story_id = s.id
+                JOIN pages p ON p.id = sa.page_id
+                WHERE to_tsvector('english', coalesce(s.headline,'') || ' ' || coalesce(s.summary,''))
+                      @@ websearch_to_tsquery('english', %s)
+                GROUP BY s.id
+                ORDER BY score DESC
+                LIMIT %s
+            """, (q, q, limit))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return {"total": len(rows), "mode": mode, "type": "stories", "q": q, "stories": rows}
+
+    # articles
+    if mode == "semantic":
+        cur.execute("""
+            SELECT p.id, p.url, p.title, p.source_domain,
+                   pv.summary, pv.article_date, pv.fetched_at,
+                   1 - (pv.embedding <=> %s::vector) AS score
+            FROM (
+                SELECT DISTINCT ON (page_id) *
+                FROM page_versions
+                WHERE ingest_status = 'full' AND embedding IS NOT NULL
+                ORDER BY page_id, COALESCE(article_date, fetched_at) DESC
+            ) pv
+            JOIN pages p ON p.id = pv.page_id
+            ORDER BY pv.embedding <=> %s::vector
+            LIMIT %s
+        """, (vec_str, vec_str, limit))
+    else:
+        cur.execute("""
+            SELECT p.id, p.url, p.title, p.source_domain,
+                   pv.summary, pv.article_date, pv.fetched_at,
+                   ts_rank(
+                       to_tsvector('english', coalesce(p.title,'') || ' ' || coalesce(pv.summary,'')),
+                       websearch_to_tsquery('english', %s)
+                   ) AS score
+            FROM (
+                SELECT DISTINCT ON (page_id) *
+                FROM page_versions
+                WHERE ingest_status = 'full'
+                ORDER BY page_id, COALESCE(article_date, fetched_at) DESC
+            ) pv
+            JOIN pages p ON p.id = pv.page_id
+            WHERE to_tsvector('english', coalesce(p.title,'') || ' ' || coalesce(pv.summary,''))
+                  @@ websearch_to_tsquery('english', %s)
+            ORDER BY score DESC
+            LIMIT %s
+        """, (q, q, limit))
+
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return {"total": len(rows), "mode": mode, "type": "articles", "q": q, "articles": rows}
 
 
 handler = Mangum(app)

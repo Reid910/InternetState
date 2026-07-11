@@ -1,5 +1,7 @@
 import Link from 'next/link'
 import ArticleFeed from '../ArticleFeed'
+import ThemeToggle from '../ThemeToggle'
+import InlineSearch from '../InlineSearch'
 
 const API_URL = process.env.API_URL || 'http://localhost:8000'
 const PAGE_SIZE = 30
@@ -9,6 +11,16 @@ async function getArticles(page: number, source: string) {
     const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) })
     if (source) params.set('source', source)
     const res = await fetch(`${API_URL}/articles?${params}`, { next: { revalidate: 300 } })
+    if (!res.ok) return { total: 0, articles: [] }
+    return res.json()
+  } catch {
+    return { total: 0, articles: [] }
+  }
+}
+
+async function searchArticles(q: string) {
+  try {
+    const res = await fetch(`${API_URL}/search?q=${encodeURIComponent(q)}&type=articles&mode=text&limit=30`, { cache: 'no-store' })
     if (!res.ok) return { total: 0, articles: [] }
     return res.json()
   } catch {
@@ -39,50 +51,63 @@ async function getStats() {
 export default async function FeedPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; source?: string }>
+  searchParams: Promise<{ page?: string; source?: string; q?: string }>
 }) {
-  const { page: pageStr, source = '' } = await searchParams
+  const { page: pageStr, source = '', q = '' } = await searchParams
   const page = Math.max(1, parseInt(pageStr || '1') || 1)
 
   const [articlesData, sources, stats] = await Promise.all([
-    getArticles(page, source),
+    q.trim() ? searchArticles(q.trim()) : getArticles(page, source),
     getSources(),
     getStats(),
   ])
 
-  const totalPages = Math.ceil(articlesData.total / PAGE_SIZE) || 1
+  const totalPages = Math.ceil((articlesData.total ?? 0) / PAGE_SIZE) || 1
 
   return (
-    <main style={{ maxWidth: '780px', margin: '0 auto', padding: '2rem 1rem' }}>
-      <header style={{ marginBottom: '1.5rem', borderBottom: '2px solid #1a1a1a', paddingBottom: '1rem' }}>
-        <a href="/" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: '700' }}>Internet State</h1>
-        </a>
-        <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.4rem', alignItems: 'center' }}>
-          <Stat label="articles today" value={stats.articles_today} />
-          <Stat label="total articles" value={stats.total_articles} />
-          <Link href="/" style={{ fontSize: '0.82rem', color: '#aaa', marginLeft: 'auto', textDecoration: 'none' }}>
-            ← stories
-          </Link>
+    <main className="page-main">
+      <header className="site-header">
+        <div className="site-title">
+          <a href="/"><h1>Internet State</h1></a>
+          <ThemeToggle />
+        </div>
+        <div className="header-meta">
+          <span className="stat"><strong>{stats.articles_today.toLocaleString()}</strong> articles today</span>
+          <span className="stat"><strong>{stats.total_articles.toLocaleString()}</strong> total articles</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.25rem' }}>
+            <Link href="/" className="nav-btn">Stories</Link>
+            <Link href="/feed" className="nav-btn active">Articles</Link>
+          </div>
         </div>
       </header>
 
-      <ArticleFeed
-        articles={articlesData.articles}
-        total={articlesData.total}
-        page={page}
-        totalPages={totalPages}
-        sources={sources}
-        source={source}
-      />
-    </main>
-  )
-}
+      <InlineSearch basePath="/feed" type="articles" />
 
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <span style={{ fontSize: '0.85rem', color: '#666' }}>
-      <strong style={{ color: '#111', fontWeight: '700' }}>{value.toLocaleString()}</strong>{' '}{label}
-    </span>
+      {q.trim() ? (
+        <>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+            {articlesData.total} result{articlesData.total !== 1 ? 's' : ''} for &ldquo;{q}&rdquo;
+            {' · '}<a href="/feed" style={{ color: 'var(--text-muted)' }}>clear</a>
+          </div>
+          <ArticleFeed
+            articles={articlesData.articles}
+            total={articlesData.total}
+            page={1}
+            totalPages={1}
+            sources={sources}
+            source=""
+          />
+        </>
+      ) : (
+        <ArticleFeed
+          articles={articlesData.articles}
+          total={articlesData.total}
+          page={page}
+          totalPages={totalPages}
+          sources={sources}
+          source={source}
+        />
+      )}
+    </main>
   )
 }

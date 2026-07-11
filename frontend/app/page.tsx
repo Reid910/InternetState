@@ -1,13 +1,24 @@
 import Link from 'next/link'
 import StoriesFeed from './StoriesFeed'
+import ThemeToggle from './ThemeToggle'
+import InlineSearch from './InlineSearch'
+import StoryCard, { type Story } from './StoryCard'
 
 const API_URL = process.env.API_URL || 'http://localhost:8000'
 
 async function getStories(page: number) {
   try {
-    const res = await fetch(`${API_URL}/stories?page=${page}&limit=20`, {
-      next: { revalidate: 300 },
-    })
+    const res = await fetch(`${API_URL}/stories?page=${page}&limit=20`, { next: { revalidate: 300 } })
+    if (!res.ok) return { total: 0, stories: [] }
+    return res.json()
+  } catch {
+    return { total: 0, stories: [] }
+  }
+}
+
+async function searchStories(q: string) {
+  try {
+    const res = await fetch(`${API_URL}/search?q=${encodeURIComponent(q)}&type=stories&mode=text&limit=30`, { cache: 'no-store' })
     if (!res.ok) return { total: 0, stories: [] }
     return res.json()
   } catch {
@@ -28,38 +39,50 @@ async function getStats() {
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>
+  searchParams: Promise<{ page?: string; q?: string }>
 }) {
-  const { page: pageStr } = await searchParams
+  const { page: pageStr, q = '' } = await searchParams
   const page = Math.max(1, parseInt(pageStr || '1') || 1)
 
-  const [storiesData, stats] = await Promise.all([getStories(page), getStats()])
-  const totalPages = Math.ceil(storiesData.total / 20) || 1
+  const [storiesData, stats] = await Promise.all([
+    q.trim() ? searchStories(q.trim()) : getStories(page),
+    getStats(),
+  ])
+
+  const totalPages = Math.ceil((storiesData.total ?? 0) / 20) || 1
+  const stories: Story[] = storiesData.stories ?? []
 
   return (
-    <main style={{ maxWidth: '780px', margin: '0 auto', padding: '2rem 1rem' }}>
-      <header style={{ marginBottom: '1.5rem', borderBottom: '2px solid #1a1a1a', paddingBottom: '1rem' }}>
-        <a href="/" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: '700' }}>Internet State</h1>
-        </a>
-        <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.4rem', alignItems: 'center' }}>
-          <Stat label="articles today" value={stats.articles_today} />
-          <Stat label="total articles" value={stats.total_articles} />
-          <Link href="/feed" style={{ fontSize: '0.82rem', color: '#aaa', marginLeft: 'auto', textDecoration: 'none' }}>
-            all articles →
-          </Link>
+    <main className="page-main">
+      <header className="site-header">
+        <div className="site-title">
+          <a href="/"><h1>Internet State</h1></a>
+          <ThemeToggle />
+        </div>
+        <div className="header-meta">
+          <span className="stat"><strong>{stats.articles_today.toLocaleString()}</strong> articles today</span>
+          <span className="stat"><strong>{stats.total_articles.toLocaleString()}</strong> total articles</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.25rem' }}>
+            <Link href="/" className="nav-btn active">Stories</Link>
+            <Link href="/feed" className="nav-btn">Articles</Link>
+          </div>
         </div>
       </header>
 
-      <StoriesFeed stories={storiesData.stories} total={storiesData.total} page={page} totalPages={totalPages} />
-    </main>
-  )
-}
+      <InlineSearch basePath="/" type="stories" />
 
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <span style={{ fontSize: '0.85rem', color: '#666' }}>
-      <strong style={{ color: '#111', fontWeight: '700' }}>{value.toLocaleString()}</strong>{' '}{label}
-    </span>
+      {q.trim() ? (
+        <>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+            {stories.length} result{stories.length !== 1 ? 's' : ''} for &ldquo;{q}&rdquo;
+            {' · '}<a href="/" style={{ color: 'var(--text-muted)' }}>clear</a>
+          </div>
+          {stories.length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No results found.</p>}
+          {stories.map(story => <StoryCard key={story.id} story={story} />)}
+        </>
+      ) : (
+        <StoriesFeed stories={stories} total={storiesData.total} page={page} totalPages={totalPages} />
+      )}
+    </main>
   )
 }
