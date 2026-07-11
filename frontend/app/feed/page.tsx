@@ -1,17 +1,28 @@
 import Link from 'next/link'
-import StoriesFeed from './StoriesFeed'
+import ArticleFeed from '../ArticleFeed'
 
 const API_URL = process.env.API_URL || 'http://localhost:8000'
+const PAGE_SIZE = 30
 
-async function getStories(page: number) {
+async function getArticles(page: number, source: string) {
   try {
-    const res = await fetch(`${API_URL}/stories?page=${page}&limit=20`, {
-      next: { revalidate: 300 },
-    })
-    if (!res.ok) return { total: 0, stories: [] }
+    const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) })
+    if (source) params.set('source', source)
+    const res = await fetch(`${API_URL}/articles?${params}`, { next: { revalidate: 300 } })
+    if (!res.ok) return { total: 0, articles: [] }
     return res.json()
   } catch {
-    return { total: 0, stories: [] }
+    return { total: 0, articles: [] }
+  }
+}
+
+async function getSources() {
+  try {
+    const res = await fetch(`${API_URL}/sources`, { next: { revalidate: 300 } })
+    if (!res.ok) return []
+    return res.json()
+  } catch {
+    return []
   }
 }
 
@@ -25,16 +36,21 @@ async function getStats() {
   }
 }
 
-export default async function Home({
+export default async function FeedPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>
+  searchParams: Promise<{ page?: string; source?: string }>
 }) {
-  const { page: pageStr } = await searchParams
+  const { page: pageStr, source = '' } = await searchParams
   const page = Math.max(1, parseInt(pageStr || '1') || 1)
 
-  const [storiesData, stats] = await Promise.all([getStories(page), getStats()])
-  const totalPages = Math.ceil(storiesData.total / 20) || 1
+  const [articlesData, sources, stats] = await Promise.all([
+    getArticles(page, source),
+    getSources(),
+    getStats(),
+  ])
+
+  const totalPages = Math.ceil(articlesData.total / PAGE_SIZE) || 1
 
   return (
     <main style={{ maxWidth: '780px', margin: '0 auto', padding: '2rem 1rem' }}>
@@ -45,13 +61,20 @@ export default async function Home({
         <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.4rem', alignItems: 'center' }}>
           <Stat label="articles today" value={stats.articles_today} />
           <Stat label="total articles" value={stats.total_articles} />
-          <Link href="/feed" style={{ fontSize: '0.82rem', color: '#aaa', marginLeft: 'auto', textDecoration: 'none' }}>
-            all articles →
+          <Link href="/" style={{ fontSize: '0.82rem', color: '#aaa', marginLeft: 'auto', textDecoration: 'none' }}>
+            ← stories
           </Link>
         </div>
       </header>
 
-      <StoriesFeed stories={storiesData.stories} total={storiesData.total} page={page} totalPages={totalPages} />
+      <ArticleFeed
+        articles={articlesData.articles}
+        total={articlesData.total}
+        page={page}
+        totalPages={totalPages}
+        sources={sources}
+        source={source}
+      />
     </main>
   )
 }

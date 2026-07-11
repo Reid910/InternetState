@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 interface Article {
   id: number
@@ -13,20 +13,10 @@ interface Article {
   source_domain: string | null
 }
 
-interface ArticlesResponse {
-  total: number
-  page: number
-  limit: number
-  articles: Article[]
-}
-
 interface Source {
   source_domain: string
   article_count: number
 }
-
-const PAGE_SIZE = 30
-const API = '/api-proxy'
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return ''
@@ -59,60 +49,45 @@ function ArticleCard({ article }: { article: Article }) {
   )
 }
 
-function Pager({ page, totalPages, goToPage }: {
-  page: number; totalPages: number; goToPage: (p: number) => void
-}) {
-  const display = totalPages < 1 ? 1 : totalPages
+function Pager({ page, totalPages, source }: { page: number; totalPages: number; source: string }) {
+  const sourceParam = source ? `&source=${encodeURIComponent(source)}` : ''
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-      <button onClick={() => goToPage(page - 1)} disabled={page === 1}
-        style={{ padding: '0.35rem 0.7rem', borderRadius: '4px', border: '1px solid #ddd', background: page === 1 ? '#f5f5f5' : '#fff', cursor: page === 1 ? 'default' : 'pointer', color: '#444', fontSize: '0.85rem' }}>
+      <Link href={`/feed?page=${page - 1}${sourceParam}`}
+        aria-disabled={page === 1}
+        onClick={e => page === 1 && e.preventDefault()}
+        style={{ padding: '0.35rem 0.7rem', borderRadius: '4px', border: '1px solid #ddd', background: page === 1 ? '#f5f5f5' : '#fff', color: '#444', fontSize: '0.85rem', textDecoration: 'none', pointerEvents: page === 1 ? 'none' : 'auto' }}>
         ←
-      </button>
-      <span style={{ fontSize: '0.82rem', color: '#666' }}>{page} / {display}</span>
-      <button onClick={() => goToPage(page + 1)} disabled={page === totalPages}
-        style={{ padding: '0.35rem 0.7rem', borderRadius: '4px', border: '1px solid #ddd', background: page === totalPages ? '#f5f5f5' : '#fff', cursor: page === totalPages ? 'default' : 'pointer', color: '#444', fontSize: '0.85rem' }}>
+      </Link>
+      <span style={{ fontSize: '0.82rem', color: '#666' }}>{page} / {totalPages}</span>
+      <Link href={`/feed?page=${page + 1}${sourceParam}`}
+        aria-disabled={page === totalPages}
+        onClick={e => page === totalPages && e.preventDefault()}
+        style={{ padding: '0.35rem 0.7rem', borderRadius: '4px', border: '1px solid #ddd', background: page === totalPages ? '#f5f5f5' : '#fff', color: '#444', fontSize: '0.85rem', textDecoration: 'none', pointerEvents: page === totalPages ? 'none' : 'auto' }}>
         →
-      </button>
+      </Link>
     </div>
   )
 }
 
-export default function ArticleFeed() {
+export default function ArticleFeed({
+  articles, total, page, totalPages, sources, source,
+}: {
+  articles: Article[]
+  total: number
+  page: number
+  totalPages: number
+  sources: Source[]
+  source: string
+}) {
   const router = useRouter()
-  const pathname = usePathname()
-  const page = parseInt(pathname.slice(1)) || 1
-
-  const [source, setSource] = useState('')
-  const [data, setData] = useState<ArticlesResponse | null>(null)
-  const [sources, setSources] = useState<Source[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    fetch(`${API}/sources`).then(r => r.json()).then(setSources).catch(() => {})
-  }, [])
-
-  useEffect(() => {
-    setLoading(true)
-    window.scrollTo(0, 0)
-    const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) })
-    if (source) params.set('source', source)
-    fetch(`${API}/articles?${params}`)
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false) })
-      .catch(() => setLoading(false))
-  }, [page, source])
 
   function handleSourceChange(val: string) {
-    setSource(val)
-    router.push('/')
+    const params = new URLSearchParams()
+    if (val) params.set('source', val)
+    params.set('page', '1')
+    router.push(`/feed?${params}`)
   }
-
-  function goToPage(newPage: number) {
-    router.push(newPage === 1 ? '/' : `/${newPage}`)
-  }
-
-  const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0
 
   return (
     <>
@@ -126,20 +101,17 @@ export default function ArticleFeed() {
             </option>
           ))}
         </select>
-        {data && <span style={{ fontSize: '0.82rem', color: '#aaa' }}>{data.total.toLocaleString()} articles</span>}
+        <span style={{ fontSize: '0.82rem', color: '#aaa' }}>{total.toLocaleString()} articles</span>
         <div style={{ marginLeft: 'auto' }}>
-          <Pager page={page} totalPages={totalPages} goToPage={goToPage} />
+          <Pager page={page} totalPages={totalPages} source={source} />
         </div>
       </div>
 
-      {loading && <p style={{ color: '#aaa', fontSize: '0.9rem' }}>Loading...</p>}
-      {!loading && data?.articles.length === 0 && <p style={{ color: '#aaa', fontSize: '0.9rem' }}>No articles yet.</p>}
+      {articles.length === 0 && <p style={{ color: '#aaa', fontSize: '0.9rem' }}>No articles yet.</p>}
 
-      {data?.articles.map(article => (
-        <ArticleCard key={article.id} article={article} />
-      ))}
+      {articles.map(article => <ArticleCard key={article.id} article={article} />)}
 
-      <Pager page={page} totalPages={totalPages} goToPage={goToPage} />
+      {articles.length > 0 && <Pager page={page} totalPages={totalPages} source={source} />}
     </>
   )
 }

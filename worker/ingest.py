@@ -5,7 +5,7 @@ import requests
 import certifi
 import feedparser
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
 from openai import OpenAI
@@ -163,6 +163,12 @@ def clean_text(html: str) -> str:
     return (body or soup).get_text(separator=" ", strip=True)
 
 
+def _as_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def extract_article_date(html: str):
     soup = BeautifulSoup(html, "html.parser")
     for script in soup.find_all("script", type="application/ld+json"):
@@ -172,7 +178,7 @@ def extract_article_date(html: str):
                 data = data[0]
             for field in ("datePublished", "dateModified", "uploadDate"):
                 if field in data:
-                    return datetime.fromisoformat(data[field].replace("Z", "+00:00"))
+                    return _as_utc(datetime.fromisoformat(data[field].replace("Z", "+00:00")))
         except Exception:
             pass
     for attr, name in [
@@ -184,7 +190,7 @@ def extract_article_date(html: str):
         tag = soup.find("meta", {attr: name})
         if tag and tag.get("content"):
             try:
-                return datetime.fromisoformat(tag["content"].replace("Z", "+00:00"))
+                return _as_utc(datetime.fromisoformat(tag["content"].replace("Z", "+00:00")))
             except Exception:
                 pass
     return None
@@ -446,7 +452,7 @@ def process_rss_feed(feed_url: str, cur, conn):
 
         title = entry.get("title")
         published = entry.get("published_parsed") or entry.get("updated_parsed")
-        date = datetime(*published[:6]) if published else None
+        date = datetime(*published[:6], tzinfo=timezone.utc) if published else None
 
         rss_source = entry.get("source", {})
         rss_source_url = rss_source.get("href") or rss_source.get("url")

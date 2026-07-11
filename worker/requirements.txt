@@ -5,3 +5,4 @@ certifi
 feedparser
 boto3
 openai
+numpy

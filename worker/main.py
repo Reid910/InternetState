@@ -4,6 +4,7 @@ import psycopg2
 
 from config import DB_URL, RSS_SOURCES
 from ingest import process_rss_feed, reset_feed_failures, get_feed_failures
+from cluster import cluster_articles
 
 
 def connect_db(retries=10, delay_seconds=2):
@@ -39,6 +40,7 @@ def run_once():
         print(f"\nFeed failures this run: {failures}")
 
     cur.close()
+    cluster_articles(conn)
     conn.close()
     print("\nDone")
 
