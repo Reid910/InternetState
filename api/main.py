@@ -29,8 +29,8 @@ def stats():
     cur = conn.cursor()
     cur.execute("""
         SELECT
-            (SELECT COUNT(*) FROM page_versions WHERE ingest_status = 'full') AS total_articles,
-            (SELECT COUNT(*) FROM page_versions
+            (SELECT COUNT(DISTINCT page_id) FROM page_versions WHERE ingest_status = 'full') AS total_articles,
+            (SELECT COUNT(DISTINCT page_id) FROM page_versions
              WHERE ingest_status = 'full' AND fetched_at >= NOW() - INTERVAL '24 hours') AS articles_today
     """)
     row = cur.fetchone()
@@ -121,6 +121,39 @@ def list_stories(page: int = 1, limit: int = 20):
     cur.close()
     conn.close()
     return {"total": total, "page": page, "limit": limit, "stories": rows}
+
+
+@app.get("/stories/{story_id}")
+def get_story(story_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT s.id, s.headline, s.summary, s.article_count, s.updated_at, s.created_at,
+               json_agg(json_build_object(
+                   'id', p.id, 'url', p.url, 'title', p.title,
+                   'source_domain', p.source_domain,
+                   'article_date', pv.article_date,
+                   'summary', pv.summary
+               ) ORDER BY COALESCE(pv.article_date, pv.fetched_at) DESC) AS articles
+        FROM stories s
+        JOIN story_articles sa ON sa.story_id = s.id
+        JOIN pages p ON p.id = sa.page_id
+        LEFT JOIN LATERAL (
+            SELECT summary, article_date, fetched_at
+            FROM page_versions
+            WHERE page_id = p.id AND ingest_status = 'full'
+            ORDER BY COALESCE(article_date, fetched_at) DESC
+            LIMIT 1
+        ) pv ON true
+        WHERE s.id = %s
+        GROUP BY s.id
+    """, (story_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Story not found")
+    return row
 
 
 @app.get("/search")

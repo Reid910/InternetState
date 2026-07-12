@@ -65,6 +65,7 @@ export default async function Home({
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.25rem' }}>
             <Link href="/" className="nav-btn active">Stories</Link>
             <Link href="/feed" className="nav-btn">Articles</Link>
+            <Link href="/about" className="nav-btn">About</Link>
           </div>
         </div>
       </header>

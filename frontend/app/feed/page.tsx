@@ -77,6 +77,7 @@ export default async function FeedPage({
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.25rem' }}>
             <Link href="/" className="nav-btn">Stories</Link>
             <Link href="/feed" className="nav-btn active">Articles</Link>
+            <Link href="/about" className="nav-btn">About</Link>
           </div>
         </div>
       </header>

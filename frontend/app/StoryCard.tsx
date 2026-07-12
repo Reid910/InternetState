@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 
 export interface Article {
   id: number
@@ -35,9 +36,10 @@ export default function StoryCard({ story }: { story: Story }) {
         <span>{formatDate(story.updated_at)}</span>
       </div>
 
-      <div style={{ fontSize: '0.97rem', fontWeight: '600', color: 'var(--text-primary)', lineHeight: '1.4', marginBottom: '0.4rem' }}>
+      <Link href={`/stories/${story.id}`}
+        style={{ fontSize: '0.97rem', fontWeight: '600', color: 'var(--text-primary)', lineHeight: '1.4', marginBottom: '0.4rem', display: 'block', textDecoration: 'none' }}>
         {story.headline}
-      </div>
+      </Link>
 
       {story.summary && (
         <p style={{ margin: '0 0 0.6rem', color: 'var(--text-secondary)', fontSize: '0.86rem', lineHeight: '1.65' }}>
