@@ -1,4 +1,5 @@
 import os
+import time
 import psycopg2
 import psycopg2.extras
 from fastapi import FastAPI, HTTPException
@@ -18,6 +19,16 @@ app.add_middleware(
 DB_URL = os.getenv("DATABASE_URL")
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+_cache: dict = {}
+
+def cache_get(key: str, ttl: int, fn):
+    now = time.time()
+    if key in _cache and now - _cache[key]["ts"] < ttl:
+        return _cache[key]["val"]
+    val = fn()
+    _cache[key] = {"ts": now, "val": val}
+    return val
+
 
 def get_conn():
     return psycopg2.connect(DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
@@ -25,135 +36,152 @@ def get_conn():
 
 @app.get("/stats")
 def stats():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT
-            (SELECT COUNT(DISTINCT page_id) FROM page_versions WHERE ingest_status = 'full') AS total_articles,
-            (SELECT COUNT(DISTINCT page_id) FROM page_versions
-             WHERE ingest_status = 'full' AND fetched_at >= NOW() - INTERVAL '24 hours') AS articles_today
-    """)
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    return row
+    def fetch():
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                (SELECT COUNT(DISTINCT page_id) FROM page_versions WHERE ingest_status = 'full') AS total_articles,
+                (SELECT COUNT(DISTINCT page_id) FROM page_versions
+                 WHERE ingest_status = 'full' AND fetched_at >= NOW() - INTERVAL '24 hours') AS articles_today
+        """)
+        row = dict(cur.fetchone())
+        cur.close()
+        conn.close()
+        return row
+    return cache_get("stats", 300, fetch)
 
 
 @app.get("/articles")
 def list_articles(page: int = 1, limit: int = 30, source: str = None):
     offset = (page - 1) * limit
-    conn = get_conn()
-    cur = conn.cursor()
+    key = f"articles:{page}:{limit}:{source}"
 
-    source_filter = "AND p.source_domain = %s" if source else ""
-    count_params = ([source] if source else [])
-    query_params = ([source] if source else []) + [limit, offset]
+    def fetch():
+        conn = get_conn()
+        cur = conn.cursor()
+        source_filter = "AND p.source_domain = %s" if source else ""
+        count_params = ([source] if source else [])
+        query_params = ([source] if source else []) + [limit, offset]
 
-    cur.execute(f"""
-        SELECT COUNT(DISTINCT p.id)
-        FROM page_versions pv
-        JOIN pages p ON p.id = pv.page_id
-        WHERE pv.ingest_status = 'full' {source_filter}
-    """, count_params)
-    total = cur.fetchone()["count"]
+        cur.execute(f"""
+            SELECT COUNT(DISTINCT p.id)
+            FROM page_versions pv
+            JOIN pages p ON p.id = pv.page_id
+            WHERE pv.ingest_status = 'full' {source_filter}
+        """, count_params)
+        total = cur.fetchone()["count"]
 
-    cur.execute(f"""
-        SELECT p.id, p.url, p.title, p.source_domain,
-               pv.summary, pv.article_date, pv.fetched_at
-        FROM (
-            SELECT DISTINCT ON (page_id) *
-            FROM page_versions
-            WHERE ingest_status = 'full'
-            ORDER BY page_id, COALESCE(article_date, fetched_at) DESC
-        ) pv
-        JOIN pages p ON p.id = pv.page_id
-        WHERE true {source_filter}
-        ORDER BY COALESCE(pv.article_date, pv.fetched_at) DESC
-        LIMIT %s OFFSET %s
-    """, query_params)
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return {"total": total, "page": page, "limit": limit, "articles": rows}
+        cur.execute(f"""
+            SELECT p.id, p.url, p.title, p.source_domain,
+                   pv.summary, pv.article_date, pv.fetched_at
+            FROM (
+                SELECT DISTINCT ON (page_id) *
+                FROM page_versions
+                WHERE ingest_status = 'full'
+                ORDER BY page_id, COALESCE(article_date, fetched_at) DESC
+            ) pv
+            JOIN pages p ON p.id = pv.page_id
+            WHERE true {source_filter}
+            ORDER BY COALESCE(pv.article_date, pv.fetched_at) DESC
+            LIMIT %s OFFSET %s
+        """, query_params)
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        conn.close()
+        return {"total": total, "page": page, "limit": limit, "articles": rows}
+
+    return cache_get(key, 300, fetch)
 
 
 @app.get("/sources")
 def list_sources():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT p.source_domain, COUNT(*) AS article_count
-        FROM page_versions pv
-        JOIN pages p ON p.id = pv.page_id
-        WHERE p.source_domain IS NOT NULL AND pv.ingest_status = 'full'
-        GROUP BY p.source_domain
-        ORDER BY article_count DESC
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
+    def fetch():
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT p.source_domain, COUNT(*) AS article_count
+            FROM page_versions pv
+            JOIN pages p ON p.id = pv.page_id
+            WHERE p.source_domain IS NOT NULL AND pv.ingest_status = 'full'
+            GROUP BY p.source_domain
+            ORDER BY article_count DESC
+        """)
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        conn.close()
+        return rows
+    return cache_get("sources", 300, fetch)
 
 
 @app.get("/stories")
 def list_stories(page: int = 1, limit: int = 20):
-    offset = (page - 1) * limit
-    conn = get_conn()
-    cur = conn.cursor()
+    key = f"stories:{page}:{limit}"
 
-    cur.execute("SELECT COUNT(*) FROM stories")
-    total = cur.fetchone()["count"]
+    def fetch():
+        offset = (page - 1) * limit
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM stories")
+        total = cur.fetchone()["count"]
+        cur.execute("""
+            SELECT s.id, s.headline, s.summary, s.article_count, s.updated_at,
+                   json_agg(json_build_object(
+                       'id', p.id, 'url', p.url, 'title', p.title,
+                       'source_domain', p.source_domain
+                   ) ORDER BY p.id) AS articles
+            FROM stories s
+            JOIN story_articles sa ON sa.story_id = s.id
+            JOIN pages p ON p.id = sa.page_id
+            GROUP BY s.id
+            ORDER BY s.updated_at DESC
+            LIMIT %s OFFSET %s
+        """, (limit, offset))
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        conn.close()
+        return {"total": total, "page": page, "limit": limit, "stories": rows}
 
-    cur.execute("""
-        SELECT s.id, s.headline, s.summary, s.article_count, s.updated_at,
-               json_agg(json_build_object(
-                   'id', p.id, 'url', p.url, 'title', p.title,
-                   'source_domain', p.source_domain
-               ) ORDER BY p.id) AS articles
-        FROM stories s
-        JOIN story_articles sa ON sa.story_id = s.id
-        JOIN pages p ON p.id = sa.page_id
-        GROUP BY s.id
-        ORDER BY s.updated_at DESC
-        LIMIT %s OFFSET %s
-    """, (limit, offset))
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return {"total": total, "page": page, "limit": limit, "stories": rows}
+    return cache_get(key, 300, fetch)
 
 
 @app.get("/stories/{story_id}")
 def get_story(story_id: int):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT s.id, s.headline, s.summary, s.article_count, s.updated_at, s.created_at,
-               json_agg(json_build_object(
-                   'id', p.id, 'url', p.url, 'title', p.title,
-                   'source_domain', p.source_domain,
-                   'article_date', pv.article_date,
-                   'summary', pv.summary
-               ) ORDER BY COALESCE(pv.article_date, pv.fetched_at) DESC) AS articles
-        FROM stories s
-        JOIN story_articles sa ON sa.story_id = s.id
-        JOIN pages p ON p.id = sa.page_id
-        LEFT JOIN LATERAL (
-            SELECT summary, article_date, fetched_at
-            FROM page_versions
-            WHERE page_id = p.id AND ingest_status = 'full'
-            ORDER BY COALESCE(article_date, fetched_at) DESC
-            LIMIT 1
-        ) pv ON true
-        WHERE s.id = %s
-        GROUP BY s.id
-    """, (story_id,))
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    if not row:
+    key = f"story:{story_id}"
+
+    def fetch():
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT s.id, s.headline, s.summary, s.article_count, s.updated_at, s.created_at,
+                   json_agg(json_build_object(
+                       'id', p.id, 'url', p.url, 'title', p.title,
+                       'source_domain', p.source_domain,
+                       'article_date', pv.article_date,
+                       'summary', pv.summary
+                   ) ORDER BY COALESCE(pv.article_date, pv.fetched_at) DESC) AS articles
+            FROM stories s
+            JOIN story_articles sa ON sa.story_id = s.id
+            JOIN pages p ON p.id = sa.page_id
+            LEFT JOIN LATERAL (
+                SELECT summary, article_date, fetched_at
+                FROM page_versions
+                WHERE page_id = p.id AND ingest_status = 'full'
+                ORDER BY COALESCE(article_date, fetched_at) DESC
+                LIMIT 1
+            ) pv ON true
+            WHERE s.id = %s
+            GROUP BY s.id
+        """, (story_id,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return dict(row) if row else None
+
+    result = cache_get(key, 300, fetch)
+    if not result:
         raise HTTPException(status_code=404, detail="Story not found")
-    return row
+    return result
 
 
 @app.get("/search")
@@ -210,12 +238,11 @@ def search(q: str, mode: str = "text", type: str = "articles", limit: int = 20):
                 ORDER BY score DESC
                 LIMIT %s
             """, (q, q, limit))
-        rows = cur.fetchall()
+        rows = [dict(r) for r in cur.fetchall()]
         cur.close()
         conn.close()
         return {"total": len(rows), "mode": mode, "type": "stories", "q": q, "stories": rows}
 
-    # articles
     if mode == "semantic":
         cur.execute("""
             SELECT p.id, p.url, p.title, p.source_domain,
@@ -252,7 +279,7 @@ def search(q: str, mode: str = "text", type: str = "articles", limit: int = 20):
             LIMIT %s
         """, (q, q, limit))
 
-    rows = cur.fetchall()
+    rows = [dict(r) for r in cur.fetchall()]
     cur.close()
     conn.close()
     return {"total": len(rows), "mode": mode, "type": "articles", "q": q, "articles": rows}
