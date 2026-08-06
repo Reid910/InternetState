@@ -52,41 +52,57 @@ def _generate_story(articles: list[dict]) -> tuple[str, str]:
     return headline or "Untitled Story", summary
 
 
-def cluster_articles(conn):
+def cluster_articles(conn, window_minutes: int = 90):
+    """
+    window_minutes: how far back to look for unassigned articles.
+    Should be slightly larger than the EventBridge cadence so no
+    articles are missed, but small enough to avoid re-pulling the
+    full historical backlog on every run.
+    """
     cur = conn.cursor()
 
     # --- Load unassigned articles with embeddings ---
+    # Time-bounded so articles that never cluster don't re-transfer
+    # their embeddings on every subsequent run indefinitely.
     cur.execute("""
         SELECT p.id, p.title, pv.summary, pv.embedding
         FROM pages p
         JOIN (
             SELECT DISTINCT ON (page_id) page_id, summary, embedding, fetched_at
             FROM page_versions
-            WHERE ingest_status = 'full' AND embedding IS NOT NULL
+            WHERE ingest_status = 'full'
+              AND embedding IS NOT NULL
+              AND fetched_at > NOW() - INTERVAL '%s minutes'
             ORDER BY page_id, fetched_at DESC
         ) pv ON pv.page_id = p.id
         WHERE p.id NOT IN (SELECT page_id FROM story_articles)
         ORDER BY pv.fetched_at DESC
         LIMIT 500
-    """)
+    """ % window_minutes)
     unassigned = [
         {"id": r[0], "title": r[1], "summary": r[2], "embedding": _parse_embedding(r[3])}
         for r in cur.fetchall()
     ]
 
+    emb_bytes = len(unassigned) * 1536 * 4
+    print(f"[cluster] {len(unassigned)} unassigned articles (~{emb_bytes // 1024}KB embedding transfer)")
+
     if not unassigned:
-        print("[cluster] no new articles to cluster")
         cur.close()
         return
 
-    print(f"[cluster] {len(unassigned)} unassigned articles")
-
-    # --- Load existing story centroids ---
-    cur.execute("SELECT id, embedding FROM stories WHERE embedding IS NOT NULL")
+    # --- Load recent story centroids (last 7 days only) ---
+    # Avoids pulling all historical story embeddings on every run.
+    cur.execute("""
+        SELECT id, embedding FROM stories
+        WHERE embedding IS NOT NULL
+          AND updated_at > NOW() - INTERVAL '7 days'
+    """)
     stories = [
         {"id": r[0], "centroid": _parse_embedding(r[1])}
         for r in cur.fetchall()
     ]
+    print(f"[cluster] {len(stories)} active stories loaded (~{len(stories) * 1536 * 4 // 1024}KB)")
 
     still_unassigned = []
 
