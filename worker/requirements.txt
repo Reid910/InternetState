@@ -5,4 +5,4 @@ certifi
 feedparser
 boto3
 openai
-numpy
+numpy==1.26.4
