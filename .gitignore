@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# Claude instructions (contains AWS account details)
+CLAUDE.md
+
 # macOS
 .DS_Store
 

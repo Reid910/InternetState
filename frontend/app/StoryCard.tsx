@@ -55,7 +55,16 @@ export default function StoryCard({ story }: { story: Story }) {
         <div style={{ marginTop: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
           {story.articles.map(a => (
             <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer"
-              style={{ fontSize: '0.83rem', textDecoration: 'none', display: 'flex', gap: '0.5rem', alignItems: 'baseline' }}>
+              style={{ fontSize: '0.83rem', textDecoration: 'none', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              {a.source_domain && (
+                <img
+                  src={`https://www.google.com/s2/favicons?domain=${a.source_domain}&sz=32`}
+                  alt=""
+                  width={14}
+                  height={14}
+                  style={{ flexShrink: 0, borderRadius: '2px' }}
+                />
+              )}
               <span style={{ color: 'var(--text-meta)', fontSize: '0.75rem', flexShrink: 0 }}>{a.source_domain}</span>
               <span style={{ color: 'var(--text-secondary)' }}>{a.title || a.url}</span>
             </a>

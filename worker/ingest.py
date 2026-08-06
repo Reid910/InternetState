@@ -88,7 +88,7 @@ def fetch_page(url: str, retries=3) -> tuple[str, str]:
         try:
             resp = requests.get(
                 url,
-                timeout=(5, 25),
+                timeout=(5, 12),
                 verify=certifi.where(),
                 headers=HEADERS,
                 allow_redirects=True,
@@ -282,13 +282,13 @@ def _already_seen(page_id: int, content_hash: str, entry_guid, cur) -> bool:
 def process_url(url: str, cur, conn, title_override=None, date_override=None,
                 source_type="news", feed_url=None, entry_guid=None,
                 rss_summary: Optional[str] = None,
-                rss_source_url: Optional[str] = None) -> str:
+                rss_source_url: Optional[str] = None) -> tuple[str, dict | None]:
     """
     Full ingestion pipeline for one URL.
 
-    Returns: 'duplicate' | 'full' | 'extract_short' | 'fetch_failed'
-
-    RSS metadata is always persisted even when the full pipeline fails.
+    Returns: (status, article_or_none)
+      status: 'duplicate' | 'full' | 'extract_short' | 'fetch_failed'
+      article_or_none: dict with id/title/summary/embedding when status='full', else None
     """
     resolved = resolve_google_news_url(url)
     canonical_url = normalize_url(resolved)
@@ -303,7 +303,7 @@ def process_url(url: str, cur, conn, title_override=None, date_override=None,
     if entry_guid:
         cur.execute("SELECT 1 FROM page_versions WHERE entry_guid = %s", (entry_guid,))
         if cur.fetchone():
-            return 'duplicate'
+            return 'duplicate', None
 
     page_id = _upsert_page(canonical_url, source_domain, cur)
 
@@ -322,7 +322,7 @@ def process_url(url: str, cur, conn, title_override=None, date_override=None,
         content_hash = hash_content(rss_text or canonical_url)
 
         if _already_seen(page_id, content_hash, entry_guid, cur):
-            return 'duplicate'
+            return 'duplicate', None
 
         embed_text = " ".join(filter(None, [title_override, rss_text]))
         embedding = get_embedding(embed_text) if embed_text.strip() else None
@@ -347,7 +347,7 @@ def process_url(url: str, cur, conn, title_override=None, date_override=None,
 
         conn.commit()
         print(f"  [fetch-failed] {source_domain}: {(title_override or canonical_url)[:70]}")
-        return 'fetch_failed'
+        return 'fetch_failed', None
 
     # ---- Extraction ----
     text = clean_text(html)
@@ -355,12 +355,12 @@ def process_url(url: str, cur, conn, title_override=None, date_override=None,
     content_hash = hash_content(text)
 
     if _already_seen(page_id, content_hash, entry_guid, cur):
-        return 'duplicate'
+        return 'duplicate', None
 
     if is_consent_wall(text):
         print(f"  [consent-wall] {source_domain}: {(title_override or canonical_url)[:70]}")
         conn.rollback()
-        return 'fetch_failed'
+        return 'fetch_failed', None
 
     if word_count < MIN_WORD_COUNT:
         rss_text = strip_html(rss_summary) if rss_summary else ""
@@ -386,7 +386,7 @@ def process_url(url: str, cur, conn, title_override=None, date_override=None,
 
         conn.commit()
         print(f"  [short:{word_count}w] {source_domain}: {(title_override or canonical_url)[:70]}")
-        return 'extract_short'
+        return 'extract_short', None
 
     # ---- Full AI pipeline ----
     title = extract_title(html) or title_override
@@ -414,15 +414,15 @@ def process_url(url: str, cur, conn, title_override=None, date_override=None,
 
     conn.commit()
     print(f"  [full] {source_domain}: {(title or canonical_url)[:70]} ({word_count}w)")
-    return 'full'
+    return 'full', {"id": page_id, "title": title, "summary": summary, "embedding": embedding}
 
 
-def process_rss_feed(feed_url: str, cur, conn):
+def process_rss_feed(feed_url: str, cur, conn) -> list[dict]:
     global _feed_failures
 
     if _feed_failures.get(feed_url, 0) >= MAX_FEED_FAILURES:
         print(f"\n[quarantine] {feed_url} (failed {MAX_FEED_FAILURES}x this run)")
-        return
+        return []
 
     print(f"\n[feed] {feed_url}")
     feed = feedparser.parse(feed_url)
@@ -430,12 +430,13 @@ def process_rss_feed(feed_url: str, cur, conn):
     if feed.bozo and not feed.entries:
         _feed_failures[feed_url] = _feed_failures.get(feed_url, 0) + 1
         print(f"  [bozo] no entries: {feed.bozo_exception} (failure #{_feed_failures[feed_url]})")
-        return
+        return []
 
     is_substack = "substack.com" in feed_url
     source_type = "opinion" if is_substack else "news"
     is_google_news = "news.google.com" in feed_url
     counts: dict[str, int] = {}
+    new_articles: list[dict] = []
 
     print(f"  {len(feed.entries)} entries")
     seen_guids: set[str] = set()
@@ -466,7 +467,7 @@ def process_rss_feed(feed_url: str, cur, conn):
             rss_summary = entry.get("summary") or entry.get("description") or ""
 
         try:
-            status = process_url(
+            status, article = process_url(
                 url, cur, conn,
                 title_override=title,
                 date_override=date,
@@ -477,6 +478,8 @@ def process_rss_feed(feed_url: str, cur, conn):
                 rss_source_url=rss_source_url,
             )
             counts[status] = counts.get(status, 0) + 1
+            if article is not None:
+                new_articles.append(article)
         except Exception as e:
             print(f"  [skip] {url[:80]}: {e}")
             counts["error"] = counts.get("error", 0) + 1
@@ -484,6 +487,7 @@ def process_rss_feed(feed_url: str, cur, conn):
 
     summary_parts = [f"{v} {k}" for k, v in sorted(counts.items()) if v]
     print(f"  → {', '.join(summary_parts)}")
+    return new_articles
 
 
 def reset_feed_failures():

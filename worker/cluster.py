@@ -4,14 +4,13 @@ from config import OPENAI_API_KEY
 
 _openai = OpenAI(api_key=OPENAI_API_KEY)
 
-SIMILARITY_THRESHOLD = 0.25  # cosine distance — tune this
-MIN_ARTICLES_FOR_STORY = 2   # don't create a story from a single article
+SIMILARITY_THRESHOLD = 0.25
+MIN_ARTICLES_FOR_STORY = 2
 
 
 def _parse_embedding(raw) -> np.ndarray:
     if isinstance(raw, (list, np.ndarray)):
         return np.array(raw, dtype=np.float32)
-    # psycopg2 returns vectors as strings like '[0.1,0.2,...]'
     return np.array(raw.strip("[]").split(","), dtype=np.float32)
 
 
@@ -23,7 +22,6 @@ def _cosine_distance(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def _generate_story(articles: list[dict]) -> tuple[str, str]:
-    """Ask GPT for a headline and 2-sentence summary given a list of article titles/summaries."""
     lines = []
     for a in articles[:8]:
         title = a.get("title") or ""
@@ -52,61 +50,73 @@ def _generate_story(articles: list[dict]) -> tuple[str, str]:
     return headline or "Untitled Story", summary
 
 
-def cluster_articles(conn, window_minutes: int = 90):
+def cluster_articles(conn, new_articles: list[dict]):
     """
-    window_minutes: how far back to look for unassigned articles.
-    Should be slightly larger than the EventBridge cadence so no
-    articles are missed, but small enough to avoid re-pulling the
-    full historical backlog on every run.
+    new_articles: list of {id, title, summary, embedding} from the current ingest run.
+    Embeddings are already in memory — no Neon transfer needed for article embeddings.
+
+    Flow:
+      1. Load story centroids from Neon (LIMIT 200, most recent)
+      2. Load 50 newest orphans from Neon
+      3. Cluster all candidates (new + orphans) against story centroids
+      4. Group remaining unmatched candidates against each other
+      5. Delete matched orphans, insert newly unmatched new articles as orphans
     """
     cur = conn.cursor()
 
-    # --- Load unassigned articles with embeddings ---
-    # Time-bounded so articles that never cluster don't re-transfer
-    # their embeddings on every subsequent run indefinitely.
+    # --- Load story centroids (most recent 200, no time filter) ---
     cur.execute("""
-        SELECT p.id, p.title, pv.summary, pv.embedding
-        FROM pages p
+        SELECT id, embedding, article_count FROM stories
+        WHERE embedding IS NOT NULL
+        ORDER BY updated_at DESC
+        LIMIT 200
+    """)
+    stories = [
+        {"id": r[0], "centroid": _parse_embedding(r[1]), "count": r[2] or 1}
+        for r in cur.fetchall()
+    ]
+    print(f"[cluster] {len(stories)} story centroids (~{len(stories) * 1536 * 4 // 1024}KB)")
+
+    # --- Load 50 newest orphans ---
+    cur.execute("""
+        SELECT oa.page_id, p.title, pv.summary, oa.embedding
+        FROM orphan_articles oa
+        JOIN pages p ON p.id = oa.page_id
         JOIN (
-            SELECT DISTINCT ON (page_id) page_id, summary, embedding, fetched_at
+            SELECT DISTINCT ON (page_id) page_id, summary
             FROM page_versions
             WHERE ingest_status = 'full'
-              AND embedding IS NOT NULL
-              AND fetched_at > NOW() - INTERVAL '%s minutes'
             ORDER BY page_id, fetched_at DESC
-        ) pv ON pv.page_id = p.id
-        WHERE p.id NOT IN (SELECT page_id FROM story_articles)
-        ORDER BY pv.fetched_at DESC
-        LIMIT 500
-    """ % window_minutes)
-    unassigned = [
+        ) pv ON pv.page_id = oa.page_id
+        ORDER BY oa.created_at DESC
+        LIMIT 50
+    """)
+    orphans = [
         {"id": r[0], "title": r[1], "summary": r[2], "embedding": _parse_embedding(r[3])}
         for r in cur.fetchall()
     ]
+    orphan_ids = {a["id"] for a in orphans}
+    print(f"[cluster] {len(orphans)} orphans (~{len(orphans) * 1536 * 4 // 1024}KB)")
 
-    emb_bytes = len(unassigned) * 1536 * 4
-    print(f"[cluster] {len(unassigned)} unassigned articles (~{emb_bytes // 1024}KB embedding transfer)")
+    # Normalize new article embeddings to numpy arrays
+    for a in new_articles:
+        if not isinstance(a["embedding"], np.ndarray):
+            a["embedding"] = _parse_embedding(a["embedding"])
 
-    if not unassigned:
+    candidates = new_articles + orphans
+
+    if not candidates:
+        print("[cluster] no candidates")
         cur.close()
         return
 
-    # --- Load recent story centroids (last 7 days only) ---
-    # Avoids pulling all historical story embeddings on every run.
-    cur.execute("""
-        SELECT id, embedding FROM stories
-        WHERE embedding IS NOT NULL
-          AND updated_at > NOW() - INTERVAL '7 days'
-    """)
-    stories = [
-        {"id": r[0], "centroid": _parse_embedding(r[1])}
-        for r in cur.fetchall()
-    ]
-    print(f"[cluster] {len(stories)} active stories loaded (~{len(stories) * 1536 * 4 // 1024}KB)")
+    print(f"[cluster] {len(candidates)} total candidates ({len(new_articles)} new + {len(orphans)} orphans)")
 
+    # --- Match all candidates against existing story centroids ---
     still_unassigned = []
+    matched_orphan_ids = set()
 
-    for article in unassigned:
+    for article in candidates:
         emb = article["embedding"]
         best_story_id = None
         best_dist = SIMILARITY_THRESHOLD
@@ -122,31 +132,27 @@ def cluster_articles(conn, window_minutes: int = 90):
                 "INSERT INTO story_articles (story_id, page_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
                 (best_story_id, article["id"]),
             )
-            # Update centroid: fetch current centroid and article count, recompute average
-            cur.execute(
-                "SELECT embedding, article_count FROM stories WHERE id = %s",
-                (best_story_id,)
-            )
-            row = cur.fetchone()
-            old_centroid = _parse_embedding(row[0])
-            old_count = row[1] or 1
-            new_count = old_count + 1
-            new_centroid = ((old_centroid * old_count) + emb) / new_count
-            cur.execute(
-                "UPDATE stories SET embedding = %s, article_count = %s, updated_at = NOW() WHERE id = %s",
-                (new_centroid.tolist(), new_count, best_story_id),
-            )
-            # Update the in-memory centroid so subsequent articles in this batch use it
             for s in stories:
                 if s["id"] == best_story_id:
+                    old_count = s["count"]
+                    new_count = old_count + 1
+                    new_centroid = ((s["centroid"] * old_count) + emb) / new_count
+                    cur.execute(
+                        "UPDATE stories SET embedding = %s, article_count = %s, updated_at = NOW() WHERE id = %s",
+                        (new_centroid.tolist(), new_count, best_story_id),
+                    )
                     s["centroid"] = new_centroid
+                    s["count"] = new_count
+                    break
+            if article["id"] in orphan_ids:
+                matched_orphan_ids.add(article["id"])
             conn.commit()
         else:
             still_unassigned.append(article)
 
-    print(f"[cluster] {len(unassigned) - len(still_unassigned)} assigned to existing stories, {len(still_unassigned)} remaining")
+    print(f"[cluster] {len(candidates) - len(still_unassigned)} matched to existing stories, {len(still_unassigned)} remaining")
 
-    # --- Group remaining articles with each other ---
+    # --- Group remaining candidates against each other ---
     used = set()
     new_clusters = []
 
@@ -166,6 +172,7 @@ def cluster_articles(conn, window_minutes: int = 90):
 
     print(f"[cluster] {len(new_clusters)} new stories to create")
 
+    assigned_ids = set()
     for cluster in new_clusters:
         headline, summary = _generate_story(cluster)
         centroid = np.mean([a["embedding"] for a in cluster], axis=0)
@@ -182,9 +189,32 @@ def cluster_articles(conn, window_minutes: int = 90):
                 "INSERT INTO story_articles (story_id, page_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
                 (story_id, a["id"]),
             )
+            assigned_ids.add(a["id"])
+            if a["id"] in orphan_ids:
+                matched_orphan_ids.add(a["id"])
 
-        stories.append({"id": story_id, "centroid": centroid})
+        stories.append({"id": story_id, "centroid": centroid, "count": len(cluster)})
         conn.commit()
         print(f"  [new story] {headline} ({len(cluster)} articles)")
 
+    # --- Update orphan table ---
+    if matched_orphan_ids:
+        cur.execute(
+            "DELETE FROM orphan_articles WHERE page_id = ANY(%s)",
+            (list(matched_orphan_ids),)
+        )
+        print(f"[cluster] {len(matched_orphan_ids)} orphans graduated to stories")
+
+    new_orphans = [
+        a for a in still_unassigned
+        if a["id"] not in orphan_ids and a["id"] not in assigned_ids
+    ]
+    if new_orphans:
+        cur.executemany(
+            "INSERT INTO orphan_articles (page_id, embedding) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            [(a["id"], a["embedding"].tolist()) for a in new_orphans]
+        )
+        print(f"[cluster] {len(new_orphans)} new orphans added to pool")
+
+    conn.commit()
     cur.close()

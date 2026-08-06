@@ -2,7 +2,6 @@ import os
 
 RSS_SOURCES = [
     "https://news.google.com/rss",
-    "https://apnews.com/rss",
     "https://www.theguardian.com/world/rss",
     "https://feeds.npr.org/1001/rss.xml",
     "https://feeds.bbci.co.uk/news/world/rss.xml",
@@ -10,6 +9,9 @@ RSS_SOURCES = [
     "https://www.aljazeera.com/xml/rss/all.xml",
     "https://theintercept.com/feed/?rss",
     "https://www.propublica.org/feeds/propublica/main",
+    # Global
+    "https://rss.dw.com/rdf/rss-en-all",
+    "https://feeds.skynews.com/feeds/rss/world.xml",
 ]
 
 HEADERS = {
