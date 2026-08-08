@@ -79,15 +79,9 @@ def cluster_articles(conn, new_articles: list[dict]):
 
     # --- Load 50 newest orphans ---
     cur.execute("""
-        SELECT oa.page_id, p.title, pv.summary, oa.embedding
+        SELECT oa.page_id, p.title, oa.summary, oa.embedding
         FROM orphan_articles oa
         JOIN pages p ON p.id = oa.page_id
-        JOIN (
-            SELECT DISTINCT ON (page_id) page_id, summary
-            FROM page_versions
-            WHERE ingest_status = 'full'
-            ORDER BY page_id, fetched_at DESC
-        ) pv ON pv.page_id = oa.page_id
         ORDER BY oa.created_at DESC
         LIMIT 50
     """)
@@ -211,8 +205,8 @@ def cluster_articles(conn, new_articles: list[dict]):
     ]
     if new_orphans:
         cur.executemany(
-            "INSERT INTO orphan_articles (page_id, embedding) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-            [(a["id"], a["embedding"].tolist()) for a in new_orphans]
+            "INSERT INTO orphan_articles (page_id, embedding, summary) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+            [(a["id"], a["embedding"].tolist(), a.get("summary")) for a in new_orphans]
         )
         print(f"[cluster] {len(new_orphans)} new orphans added to pool")
 

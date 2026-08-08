@@ -31,7 +31,7 @@ export default function StoryCard({ story }: { story: Story }) {
   return (
     <div className="card">
       <div style={{ fontSize: '0.73rem', color: 'var(--text-meta)', marginBottom: '0.3rem', display: 'flex', gap: '0.4rem' }}>
-        <span>{story.article_count} sources</span>
+        <span>{story.articles.length} sources</span>
         <span>·</span>
         <span>{formatDate(story.updated_at)}</span>
       </div>
