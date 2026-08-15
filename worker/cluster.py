@@ -69,7 +69,7 @@ def cluster_articles(conn, new_articles: list[dict]):
         SELECT id, embedding, article_count FROM stories
         WHERE embedding IS NOT NULL
         ORDER BY updated_at DESC
-        LIMIT 200
+        LIMIT 100
     """)
     stories = [
         {"id": r[0], "centroid": _parse_embedding(r[1]), "count": r[2] or 1}
@@ -210,5 +210,7 @@ def cluster_articles(conn, new_articles: list[dict]):
         )
         print(f"[cluster] {len(new_orphans)} new orphans added to pool")
 
+    # Clean up orphans older than 30 days — unlikely to ever find a partner
+    cur.execute("DELETE FROM orphan_articles WHERE created_at < NOW() - INTERVAL '30 days'")
     conn.commit()
     cur.close()
